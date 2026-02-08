@@ -369,6 +369,13 @@ def manual_check(word, word_eol, userdata):
     check_position(None)
     return hexchat.EAT_ALL
 
+def test_tts(word, word_eol, userdata):
+    """Command to test TTS: /position_test_tts"""
+    test_message = "Now serving number 5"
+    hexchat.prnt(f'[TTS TEST] Testing TTS with message: {test_message}')
+    speak_tts(test_message)
+    return hexchat.EAT_ALL
+
 # --- HOOKS ---
 
 # Hook private messages to capture position responses (multiple methods for reliability)
@@ -384,9 +391,10 @@ hexchat.hook_command("position_start", start_monitoring, help="/position_start -
 hexchat.hook_command("position_stop", stop_monitoring, help="/position_stop - Stop monitoring queue position")
 hexchat.hook_command("position_status", check_status, help="/position_status - Show monitoring status")
 hexchat.hook_command("position_check", manual_check, help="/position_check - Manually check position now")
+hexchat.hook_command("position_test_tts", test_tts, help="/position_test_tts - Test TTS announcement")
 
 hexchat.prnt(f'{__module_name__} v{__module_version__} loaded')
-hexchat.prnt('[POSITION] Commands: /position_start /position_stop /position_status /position_check')
+hexchat.prnt('[POSITION] Commands: /position_start /position_stop /position_status /position_check /position_test_tts')
 hexchat.prnt(f'[POSITION] Configured to monitor: {POSITION_NICK}')
 hexchat.prnt(f'[POSITION] Monitoring quits in {RED_CHANNEL} for position changes')
 hexchat.prnt(f'[POSITION] Check intervals: {CHECK_INTERVAL//60}min normal, {FREQUENT_CHECK_INTERVAL//60}min when ≤{FREQUENT_CHECK_THRESHOLD}')

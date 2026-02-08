@@ -8,7 +8,7 @@ import os
 
 # Position monitoring module
 __module_name__ = 'position_monitor'
-__module_version__ = '1.11'
+__module_version__ = '1.12'
 __module_description__ = 'Monitors IRC queue position and alerts when it changes'
 
 # Configuration
@@ -38,6 +38,7 @@ timer_hook = None
 quit_check_pending = False
 last_quit_check_time = 0
 current_check_interval = CHECK_INTERVAL  # Track current interval mode
+first_check_after_load = False  # Flag to trigger TTS on first position after load
 
 # Pattern to match position responses: "You are in position 58 of 59."
 POSITION_PATTERN = re.compile(
@@ -174,6 +175,13 @@ def handle_private_message_print(word, word_eol, userdata):
             send_pushover_notification(notification_title, notification_message)
             hexchat.prnt(f'[POSITION] Initial position: {new_position} of {new_total} (notification sent)')
 
+            # TTS announcement for first check after load
+            global first_check_after_load
+            if first_check_after_load and ENABLE_TTS:
+                hexchat.prnt(f'[POSITION] Triggering TTS for initial position {new_position}')
+                speak_tts(f'Now serving number {new_position}')
+                first_check_after_load = False
+
         elif current_position != new_position:
             # Position changed - send notification
             direction = "up" if new_position < current_position else "down"
@@ -261,6 +269,13 @@ def handle_server_privmsg(word, word_eol, userdata):
 
             send_pushover_notification(notification_title, notification_message)
             hexchat.prnt(f'[POSITION] Initial position: {new_position} of {new_total} (notification sent)')
+
+            # TTS announcement for first check after load
+            global first_check_after_load
+            if first_check_after_load and ENABLE_TTS:
+                hexchat.prnt(f'[POSITION] Triggering TTS for initial position {new_position}')
+                speak_tts(f'Now serving number {new_position}')
+                first_check_after_load = False
 
         elif current_position != new_position:
             # Position changed - send notification
@@ -430,12 +445,7 @@ if ENABLE_TTS:
 
 # Auto-start monitoring if enabled
 if AUTO_START:
+    first_check_after_load = True  # Enable TTS on first position check
     start_monitoring([], [], None)
     hexchat.prnt('[POSITION] Auto-start enabled - monitoring started automatically')
-
-# TTS load notification - announce current position if known
-if ENABLE_TTS:
-    if current_position is not None:
-        speak_tts(f'Now serving number {current_position}')
-    else:
-        speak_tts('Position monitoring started')
+    hexchat.prnt('[POSITION] Will announce position via TTS when first check completes')

@@ -32,7 +32,7 @@ PUSHOVER_USER_TOKEN = 'uqmniwsjk1pre1pzj18rxrjmm8e8hy'
 # Configuration
 RED_CHANNEL = '#red-invites'
 GATEKEEPER_NICK = 'Gatekeeper'
-REJOIN_DELAY = 120  # 2 minutes in seconds
+REJOIN_DELAY = 1200  # 20 minutes in seconds
 
 # State tracking
 netsplit_timer_hook = None
@@ -78,10 +78,10 @@ def is_gatekeeper_in_channel():
     return False
 
 def rejoin_and_check_gatekeeper(userdata):
-    """Called 2 minutes after netsplit - rejoin channel and check for Gatekeeper."""
+    """Called 20 minutes after netsplit - rejoin channel and check for Gatekeeper."""
     global netsplit_timer_hook, netsplit_detected_time
 
-    hexchat.prnt('[GATEKEEPER] 2 minutes elapsed since netsplit, checking status...')
+    hexchat.prnt('[GATEKEEPER] 20 minutes elapsed since netsplit, checking status...')
 
     # Make sure we're in the channel
     context = hexchat.find_context(channel=RED_CHANNEL)
@@ -115,7 +115,7 @@ def check_and_execute_joinred(userdata):
         hexchat.prnt('[GATEKEEPER] Will not auto-rejoin queue')
 
         # Send notification that Gatekeeper is still missing
-        message = f'⚠️ GATEKEEPER STILL MISSING\n\n{GATEKEEPER_NICK} not back after 2 minutes.\nManual action required.'
+        message = f'⚠️ GATEKEEPER STILL MISSING\n\n{GATEKEEPER_NICK} not back after 20 minutes.\nManual action required.'
         send_pushover_message(message, sound='falling')
 
     return 0  # Don't repeat timer
@@ -131,10 +131,10 @@ def callback_gatekeeper_quit(word, wordeol, userdata):
     if nick == GATEKEEPER_NICK and QUIT_REASON_PATTERN.search(reason):
         netsplit_detected_time = time.time()
 
-        message = f'🚨 NETSPLIT DETECTED\n\nGatekeeper has quit ({reason})\n\nWill check in 2 minutes and auto-rejoin if back.'
+        message = f'🚨 NETSPLIT DETECTED\n\nGatekeeper has quit ({reason})\n\nWill check in 20 minutes and auto-rejoin if back.'
         send_pushover_message(message)
         hexchat.prnt(f'[GATEKEEPER] Netsplit detected: {reason}')
-        hexchat.prnt(f'[GATEKEEPER] Will rejoin {RED_CHANNEL} and check for {GATEKEEPER_NICK} in 2 minutes...')
+        hexchat.prnt(f'[GATEKEEPER] Will rejoin {RED_CHANNEL} and check for {GATEKEEPER_NICK} in 20 minutes...')
 
         # Cancel existing timer if any
         if netsplit_timer_hook is not None:
@@ -184,5 +184,5 @@ hexchat.hook_command("test_gatekeeper", cmd_test_gatekeeper,
 
 hexchat.prnt(f'{__module_name__} v{__module_version__} loaded')
 hexchat.prnt(f'[GATEKEEPER] Monitoring {GATEKEEPER_NICK} for netsplit and interview events')
-hexchat.prnt(f'[GATEKEEPER] Auto-rejoin: ON - Will check {RED_CHANNEL} after 2min delay')
+hexchat.prnt(f'[GATEKEEPER] Auto-rejoin: ON - Will check {RED_CHANNEL} after 20min delay')
 hexchat.prnt(f'[GATEKEEPER] Auto-command: /joinred (if {GATEKEEPER_NICK} is back)')

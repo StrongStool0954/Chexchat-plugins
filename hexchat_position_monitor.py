@@ -7,13 +7,18 @@ import urllib.parse
 
 # Position monitoring module
 __module_name__ = 'position_monitor'
-__module_version__ = '1.5'
+__module_version__ = '1.8'
 __module_description__ = 'Monitors IRC queue position and alerts when it changes'
 
 # Configuration
 POSITION_NICK = 'Gatekeeper'  # Nick to query for position
-CHECK_INTERVAL = 1800  # 30 minutes in seconds
+RED_CHANNEL = '#red-invites'  # Channel to monitor for quits
+CHECK_INTERVAL = 1800  # 30 minutes in seconds (normal mode)
+FREQUENT_CHECK_INTERVAL = 600  # 10 minutes in seconds (when position <= threshold)
+FREQUENT_CHECK_THRESHOLD = 15  # Switch to frequent checks when position is this or lower
 AUTO_START = True  # Automatically start monitoring when plugin loads
+QUIT_CHECK_COOLDOWN = 60  # 1 minute cooldown between quit-triggered checks
+QUIT_CHECK_DELAY = 60  # 1 minute delay before checking position after quit
 PUSHOVER_APP_TOKEN = 'au3h6frhkc6vpb9ot2hjw7izzvkg57'
 PUSHOVER_USER_TOKEN = 'uqmniwsjk1pre1pzj18rxrjmm8e8hy'
 
@@ -22,6 +27,9 @@ current_position = None
 position_total = None
 last_check_time = 0
 timer_hook = None
+quit_check_pending = False
+last_quit_check_time = 0
+current_check_interval = CHECK_INTERVAL  # Track current interval mode
 
 # Pattern to match position responses: "You are in position 58 of 59."
 POSITION_PATTERN = re.compile(
@@ -53,6 +61,28 @@ def send_pushover_notification(title, message):
         hexchat.prnt(f'[PUSHOVER] Response: {result}')
     except Exception as e:
         hexchat.prnt(f'[PUSHOVER ERROR] Failed to send notification: {e}')
+
+def adjust_check_interval():
+    """Adjust monitoring interval based on current position."""
+    global timer_hook, current_check_interval
+
+    # Determine appropriate interval based on position
+    if current_position is not None and current_position <= FREQUENT_CHECK_THRESHOLD:
+        desired_interval = FREQUENT_CHECK_INTERVAL
+    else:
+        desired_interval = CHECK_INTERVAL
+
+    # Only update if interval needs to change and monitoring is active
+    if timer_hook is not None and desired_interval != current_check_interval:
+        old_interval_minutes = current_check_interval // 60
+        new_interval_minutes = desired_interval // 60
+
+        hexchat.prnt(f'[POSITION] Position within top {FREQUENT_CHECK_THRESHOLD} - switching to {new_interval_minutes} minute checks')
+
+        # Unhook old timer and create new one with different interval
+        hexchat.unhook(timer_hook)
+        timer_hook = hexchat.hook_timer(desired_interval * 1000, check_position)
+        current_check_interval = desired_interval
 
 def check_position(userdata):
     """Send position query to the configured nick."""
@@ -106,16 +136,26 @@ def handle_private_message_print(word, word_eol, userdata):
             notification_title = "IRC Queue Position Changed"
             notification_message = (
                 f'Your position moved {direction} by {change}\n\n'
-                f'Old position: {current_position} of {new_total}\n'
+                f'Old position: {current_position} of {position_total}\n'
                 f'New position: {new_position} of {new_total}'
             )
 
             send_pushover_notification(notification_title, notification_message)
             hexchat.prnt(f'[POSITION] Position changed from {current_position} to {new_position}')
 
+        else:
+            # Position stayed the same (but total might have changed)
+            if position_total is not None and position_total != new_total:
+                hexchat.prnt(f'[POSITION] Queue size changed from {position_total} to {new_total}, but your position ({current_position}) stayed the same (no notification)')
+            else:
+                hexchat.prnt(f'[POSITION] No change - still at position {current_position} of {new_total}')
+
         # Update stored position
         current_position = new_position
         position_total = new_total
+
+        # Adjust check interval based on new position
+        adjust_check_interval()
 
     return hexchat.EAT_NONE
 
@@ -177,22 +217,60 @@ def handle_server_privmsg(word, word_eol, userdata):
             notification_title = "IRC Queue Position Changed"
             notification_message = (
                 f'Your position moved {direction} by {change}\n\n'
-                f'Old position: {current_position} of {new_total}\n'
+                f'Old position: {current_position} of {position_total}\n'
                 f'New position: {new_position} of {new_total}'
             )
 
             send_pushover_notification(notification_title, notification_message)
             hexchat.prnt(f'[POSITION] Position changed from {current_position} to {new_position}')
 
+        else:
+            # Position stayed the same (but total might have changed)
+            if position_total is not None and position_total != new_total:
+                hexchat.prnt(f'[POSITION] Queue size changed from {position_total} to {new_total}, but your position ({current_position}) stayed the same (no notification)')
+            else:
+                hexchat.prnt(f'[POSITION] No change - still at position {current_position} of {new_total}')
+
         # Update stored position
         current_position = new_position
         position_total = new_total
 
+        # Adjust check interval based on new position
+        adjust_check_interval()
+
     return hexchat.EAT_NONE
+
+def handle_quit_event(word, word_eol, userdata):
+    """Monitor quits in #red-invites and trigger delayed position check."""
+    global quit_check_pending, last_quit_check_time
+
+    nick = word[0]
+    reason = word[1] if len(word) > 1 else ""
+    channel = hexchat.get_info("channel")
+
+    # Only process if we're currently viewing #red-invites
+    if channel == RED_CHANNEL:
+        # Check if enough time has passed since last quit-triggered check (1 minute cooldown)
+        if not quit_check_pending and (time.time() - last_quit_check_time) >= QUIT_CHECK_COOLDOWN:
+            hexchat.prnt(f'[POSITION] {nick} quit - will check position in 1 minute...')
+            quit_check_pending = True
+            hexchat.hook_timer(QUIT_CHECK_DELAY * 1000, delayed_position_check)
+
+    return hexchat.EAT_NONE
+
+def delayed_position_check(userdata):
+    """Called after quit delay to check position."""
+    global quit_check_pending, last_quit_check_time
+
+    check_position(None)
+    last_quit_check_time = time.time()
+    quit_check_pending = False
+
+    return 0  # Don't repeat timer
 
 def start_monitoring(word, word_eol, userdata):
     """Command to start position monitoring: /position_start"""
-    global timer_hook
+    global timer_hook, current_check_interval
 
     if timer_hook is not None:
         hexchat.prnt('[POSITION] Monitoring is already running')
@@ -201,9 +279,15 @@ def start_monitoring(word, word_eol, userdata):
     # Do an immediate check
     check_position(None)
 
+    # Determine initial interval based on current position
+    if current_position is not None and current_position <= FREQUENT_CHECK_THRESHOLD:
+        current_check_interval = FREQUENT_CHECK_INTERVAL
+    else:
+        current_check_interval = CHECK_INTERVAL
+
     # Schedule periodic checks
-    timer_hook = hexchat.hook_timer(CHECK_INTERVAL * 1000, check_position)
-    hexchat.prnt(f'[POSITION] Started monitoring - checking every {CHECK_INTERVAL//60} minutes')
+    timer_hook = hexchat.hook_timer(current_check_interval * 1000, check_position)
+    hexchat.prnt(f'[POSITION] Started monitoring - checking every {current_check_interval//60} minutes')
 
     return hexchat.EAT_ALL
 
@@ -230,7 +314,11 @@ def check_status(word, word_eol, userdata):
         hexchat.prnt('[POSITION] Use /position_start to begin monitoring')
     else:
         hexchat.prnt('[POSITION] Monitoring is ACTIVE')
-        hexchat.prnt(f'[POSITION] Checking every {CHECK_INTERVAL//60} minutes')
+        interval_minutes = current_check_interval // 60
+        if current_check_interval == FREQUENT_CHECK_INTERVAL:
+            hexchat.prnt(f'[POSITION] Checking every {interval_minutes} minutes (FREQUENT MODE - position ≤ {FREQUENT_CHECK_THRESHOLD})')
+        else:
+            hexchat.prnt(f'[POSITION] Checking every {interval_minutes} minutes (normal mode)')
 
     if current_position is not None:
         hexchat.prnt(f'[POSITION] Last known position: {current_position} of {position_total}')
@@ -254,6 +342,9 @@ hexchat.hook_server("PRIVMSG", handle_server_privmsg)
 hexchat.hook_print("Private Message", handle_private_message_print)
 hexchat.hook_print("Private Message to Dialog", handle_private_message_print)
 
+# Monitor quit events in #red-invites to trigger position checks
+hexchat.hook_print("Quit", handle_quit_event)
+
 # Register commands
 hexchat.hook_command("position_start", start_monitoring, help="/position_start - Start monitoring queue position")
 hexchat.hook_command("position_stop", stop_monitoring, help="/position_stop - Stop monitoring queue position")
@@ -263,6 +354,8 @@ hexchat.hook_command("position_check", manual_check, help="/position_check - Man
 hexchat.prnt(f'{__module_name__} v{__module_version__} loaded')
 hexchat.prnt('[POSITION] Commands: /position_start /position_stop /position_status /position_check')
 hexchat.prnt(f'[POSITION] Configured to monitor: {POSITION_NICK}')
+hexchat.prnt(f'[POSITION] Monitoring quits in {RED_CHANNEL} for position changes')
+hexchat.prnt(f'[POSITION] Check intervals: {CHECK_INTERVAL//60}min normal, {FREQUENT_CHECK_INTERVAL//60}min when ≤{FREQUENT_CHECK_THRESHOLD}')
 
 # Auto-start monitoring if enabled
 if AUTO_START:

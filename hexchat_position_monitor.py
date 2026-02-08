@@ -8,7 +8,7 @@ import os
 
 # Position monitoring module
 __module_name__ = 'position_monitor'
-__module_version__ = '1.10'
+__module_version__ = '1.11'
 __module_description__ = 'Monitors IRC queue position and alerts when it changes'
 
 # Configuration
@@ -26,6 +26,7 @@ PUSHOVER_USER_TOKEN = 'uqmniwsjk1pre1pzj18rxrjmm8e8hy'
 # TTS Configuration
 ENABLE_TTS = True  # Enable text-to-speech announcements
 TTS_THRESHOLD = None  # Announce all position changes (set to number like 10 to only announce when position <= 10)
+TTS_DELAY = 5  # Delay in seconds before speaking
 PIPER_PATH = os.path.expanduser('~/.local/bin/piper')
 PIPER_MODEL = os.path.expanduser('~/.local/share/piper/models/en_US-lessac-medium.onnx')
 
@@ -70,33 +71,42 @@ def send_pushover_notification(title, message):
         hexchat.prnt(f'[PUSHOVER ERROR] Failed to send notification: {e}')
 
 def speak_tts(message):
-    """Speak a message using Piper TTS."""
+    """Speak a message using Piper TTS with delay."""
     if not ENABLE_TTS:
         return
 
-    try:
-        # Use flatpak-spawn to run piper on host system (HexChat is in Flatpak sandbox)
-        cmd = f'echo "{message}" | {PIPER_PATH} --model {PIPER_MODEL} --output-raw | aplay -r 22050 -f S16_LE -t raw - 2>&1'
+    def delayed_speak():
+        """Actually execute TTS after delay."""
+        try:
+            # Use flatpak-spawn to run piper on host system (HexChat is in Flatpak sandbox)
+            cmd = f'echo "{message}" | {PIPER_PATH} --model {PIPER_MODEL} --output-raw | aplay -r 22050 -f S16_LE -t raw - 2>&1'
 
-        result = subprocess.run(
-            ['flatpak-spawn', '--host', 'bash', '-c', cmd],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
+            result = subprocess.run(
+                ['flatpak-spawn', '--host', 'bash', '-c', cmd],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
 
-        if result.returncode == 0:
-            hexchat.prnt(f'[TTS] Spoke: {message}')
-        else:
-            hexchat.prnt(f'[TTS ERROR] Command failed with code {result.returncode}')
-            if result.stderr:
-                hexchat.prnt(f'[TTS ERROR] {result.stderr[:200]}')
-            if result.stdout:
-                hexchat.prnt(f'[TTS OUTPUT] {result.stdout[:200]}')
-    except subprocess.TimeoutExpired:
-        hexchat.prnt('[TTS ERROR] TTS command timed out')
-    except Exception as e:
-        hexchat.prnt(f'[TTS ERROR] Failed to speak: {e}')
+            if result.returncode == 0:
+                hexchat.prnt(f'[TTS] Spoke: {message}')
+            else:
+                hexchat.prnt(f'[TTS ERROR] Command failed with code {result.returncode}')
+                if result.stderr:
+                    hexchat.prnt(f'[TTS ERROR] {result.stderr[:200]}')
+                if result.stdout:
+                    hexchat.prnt(f'[TTS OUTPUT] {result.stdout[:200]}')
+        except subprocess.TimeoutExpired:
+            hexchat.prnt('[TTS ERROR] TTS command timed out')
+        except Exception as e:
+            hexchat.prnt(f'[TTS ERROR] Failed to speak: {e}')
+
+    # Schedule TTS with delay
+    import threading
+    hexchat.prnt(f'[TTS] Will speak in {TTS_DELAY} seconds: {message}')
+    timer = threading.Timer(TTS_DELAY, delayed_speak)
+    timer.daemon = True
+    timer.start()
 
 def adjust_check_interval():
     """Adjust monitoring interval based on current position."""
@@ -181,7 +191,10 @@ def handle_private_message_print(word, word_eol, userdata):
 
             # TTS announcement
             if TTS_THRESHOLD is None or new_position <= TTS_THRESHOLD:
+                hexchat.prnt(f'[POSITION] Triggering TTS for position {new_position}')
                 speak_tts(f'Now serving number {new_position}')
+            else:
+                hexchat.prnt(f'[POSITION] TTS skipped - position {new_position} > threshold {TTS_THRESHOLD}')
 
         else:
             # Position stayed the same (but total might have changed)
@@ -266,7 +279,10 @@ def handle_server_privmsg(word, word_eol, userdata):
 
             # TTS announcement
             if TTS_THRESHOLD is None or new_position <= TTS_THRESHOLD:
+                hexchat.prnt(f'[POSITION] Triggering TTS for position {new_position}')
                 speak_tts(f'Now serving number {new_position}')
+            else:
+                hexchat.prnt(f'[POSITION] TTS skipped - position {new_position} > threshold {TTS_THRESHOLD}')
 
         else:
             # Position stayed the same (but total might have changed)

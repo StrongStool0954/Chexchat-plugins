@@ -8,7 +8,7 @@ import os
 
 # Position monitoring module
 __module_name__ = 'position_monitor'
-__module_version__ = '1.9'
+__module_version__ = '1.10'
 __module_description__ = 'Monitors IRC queue position and alerts when it changes'
 
 # Configuration
@@ -74,29 +74,15 @@ def speak_tts(message):
     if not ENABLE_TTS:
         return
 
-    if not os.path.exists(PIPER_PATH) or not os.path.exists(PIPER_MODEL):
-        hexchat.prnt('[TTS ERROR] Piper or model not found')
-        return
-
     try:
-        # Run piper in background to avoid blocking
-        process = subprocess.Popen(
-            [PIPER_PATH, '--model', PIPER_MODEL, '--output-raw'],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
+        # Use flatpak-spawn to run piper on host system (HexChat is in Flatpak sandbox)
+        cmd = f'echo "{message}" | {PIPER_PATH} --model {PIPER_MODEL} --output-raw | aplay -r 22050 -f S16_LE -t raw -'
 
-        # Send text to piper and pipe output to aplay
-        tts_output, _ = process.communicate(input=message.encode('utf-8'))
-
-        # Play audio with aplay
         subprocess.Popen(
-            ['aplay', '-r', '22050', '-f', 'S16_LE', '-t', 'raw', '-'],
-            stdin=subprocess.PIPE,
+            ['flatpak-spawn', '--host', 'bash', '-c', cmd],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
-        ).communicate(input=tts_output)
+        )
 
         hexchat.prnt(f'[TTS] Spoke: {message}')
     except Exception as e:

@@ -433,6 +433,9 @@ if AUTO_START:
     start_monitoring([], [], None)
     hexchat.prnt('[POSITION] Auto-start enabled - monitoring started automatically')
 
-# TTS load notification
+# TTS load notification - announce current position if known
 if ENABLE_TTS:
-    speak_tts('Position monitor loaded')
+    if current_position is not None:
+        speak_tts(f'Now serving number {current_position}')
+    else:
+        speak_tts('Position monitoring started')

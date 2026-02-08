@@ -76,15 +76,25 @@ def speak_tts(message):
 
     try:
         # Use flatpak-spawn to run piper on host system (HexChat is in Flatpak sandbox)
-        cmd = f'echo "{message}" | {PIPER_PATH} --model {PIPER_MODEL} --output-raw | aplay -r 22050 -f S16_LE -t raw -'
+        cmd = f'echo "{message}" | {PIPER_PATH} --model {PIPER_MODEL} --output-raw | aplay -r 22050 -f S16_LE -t raw - 2>&1'
 
-        subprocess.Popen(
+        result = subprocess.run(
             ['flatpak-spawn', '--host', 'bash', '-c', cmd],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            capture_output=True,
+            text=True,
+            timeout=10
         )
 
-        hexchat.prnt(f'[TTS] Spoke: {message}')
+        if result.returncode == 0:
+            hexchat.prnt(f'[TTS] Spoke: {message}')
+        else:
+            hexchat.prnt(f'[TTS ERROR] Command failed with code {result.returncode}')
+            if result.stderr:
+                hexchat.prnt(f'[TTS ERROR] {result.stderr[:200]}')
+            if result.stdout:
+                hexchat.prnt(f'[TTS OUTPUT] {result.stdout[:200]}')
+    except subprocess.TimeoutExpired:
+        hexchat.prnt('[TTS ERROR] TTS command timed out')
     except Exception as e:
         hexchat.prnt(f'[TTS ERROR] Failed to speak: {e}')
 

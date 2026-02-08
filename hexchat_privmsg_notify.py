@@ -12,7 +12,7 @@ PUSHOVER_APP_TOKEN = 'au3h6frhkc6vpb9ot2hjw7izzvkg57'
 PUSHOVER_USER_TOKEN = 'uqmniwsjk1pre1pzj18rxrjmm8e8hy'
 
 # Optional: Exclude certain nicks from notifications (case-insensitive)
-EXCLUDED_NICKS = []  # Example: ['NickServ', 'ChanServ', 'MemoServ']
+EXCLUDED_NICKS = ['Gatekeeper']  # Excluded: automated position responses
 
 # Optional: Only notify when marked as away
 ONLY_NOTIFY_WHEN_AWAY = False

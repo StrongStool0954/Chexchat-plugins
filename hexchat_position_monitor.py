@@ -4,10 +4,11 @@ import re
 import time
 import urllib.request
 import urllib.parse
+import os
 
 # Position monitoring module
 __module_name__ = 'position_monitor'
-__module_version__ = '1.8'
+__module_version__ = '1.9'
 __module_description__ = 'Monitors IRC queue position and alerts when it changes'
 
 # Configuration
@@ -21,6 +22,12 @@ QUIT_CHECK_COOLDOWN = 60  # 1 minute cooldown between quit-triggered checks
 QUIT_CHECK_DELAY = 60  # 1 minute delay before checking position after quit
 PUSHOVER_APP_TOKEN = 'au3h6frhkc6vpb9ot2hjw7izzvkg57'
 PUSHOVER_USER_TOKEN = 'uqmniwsjk1pre1pzj18rxrjmm8e8hy'
+
+# TTS Configuration
+ENABLE_TTS = True  # Enable text-to-speech announcements
+TTS_THRESHOLD = None  # Announce all position changes (set to number like 10 to only announce when position <= 10)
+PIPER_PATH = os.path.expanduser('~/.local/bin/piper')
+PIPER_MODEL = os.path.expanduser('~/.local/share/piper/models/en_US-lessac-medium.onnx')
 
 # State tracking
 current_position = None
@@ -61,6 +68,39 @@ def send_pushover_notification(title, message):
         hexchat.prnt(f'[PUSHOVER] Response: {result}')
     except Exception as e:
         hexchat.prnt(f'[PUSHOVER ERROR] Failed to send notification: {e}')
+
+def speak_tts(message):
+    """Speak a message using Piper TTS."""
+    if not ENABLE_TTS:
+        return
+
+    if not os.path.exists(PIPER_PATH) or not os.path.exists(PIPER_MODEL):
+        hexchat.prnt('[TTS ERROR] Piper or model not found')
+        return
+
+    try:
+        # Run piper in background to avoid blocking
+        process = subprocess.Popen(
+            [PIPER_PATH, '--model', PIPER_MODEL, '--output-raw'],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+
+        # Send text to piper and pipe output to aplay
+        tts_output, _ = process.communicate(input=message.encode('utf-8'))
+
+        # Play audio with aplay
+        subprocess.Popen(
+            ['aplay', '-r', '22050', '-f', 'S16_LE', '-t', 'raw', '-'],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        ).communicate(input=tts_output)
+
+        hexchat.prnt(f'[TTS] Spoke: {message}')
+    except Exception as e:
+        hexchat.prnt(f'[TTS ERROR] Failed to speak: {e}')
 
 def adjust_check_interval():
     """Adjust monitoring interval based on current position."""
@@ -143,6 +183,10 @@ def handle_private_message_print(word, word_eol, userdata):
             send_pushover_notification(notification_title, notification_message)
             hexchat.prnt(f'[POSITION] Position changed from {current_position} to {new_position}')
 
+            # TTS announcement
+            if TTS_THRESHOLD is None or new_position <= TTS_THRESHOLD:
+                speak_tts(f'Now serving number {new_position}')
+
         else:
             # Position stayed the same (but total might have changed)
             if position_total is not None and position_total != new_total:
@@ -223,6 +267,10 @@ def handle_server_privmsg(word, word_eol, userdata):
 
             send_pushover_notification(notification_title, notification_message)
             hexchat.prnt(f'[POSITION] Position changed from {current_position} to {new_position}')
+
+            # TTS announcement
+            if TTS_THRESHOLD is None or new_position <= TTS_THRESHOLD:
+                speak_tts(f'Now serving number {new_position}')
 
         else:
             # Position stayed the same (but total might have changed)
@@ -356,6 +404,9 @@ hexchat.prnt('[POSITION] Commands: /position_start /position_stop /position_stat
 hexchat.prnt(f'[POSITION] Configured to monitor: {POSITION_NICK}')
 hexchat.prnt(f'[POSITION] Monitoring quits in {RED_CHANNEL} for position changes')
 hexchat.prnt(f'[POSITION] Check intervals: {CHECK_INTERVAL//60}min normal, {FREQUENT_CHECK_INTERVAL//60}min when ≤{FREQUENT_CHECK_THRESHOLD}')
+if ENABLE_TTS:
+    threshold_text = f'when ≤{TTS_THRESHOLD}' if TTS_THRESHOLD else 'on all changes'
+    hexchat.prnt(f'[POSITION] TTS enabled: "Now serving number {{position}}" {threshold_text}')
 
 # Auto-start monitoring if enabled
 if AUTO_START:
